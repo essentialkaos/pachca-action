@@ -6,8 +6,6 @@ branding:
   icon: 'bell'
   color: 'white'
 
-################################################################################
-
 inputs:
   webhook:
     description: "Webhook URL"
@@ -34,8 +32,6 @@ outputs:
   status-code:
     description: "API response status code"
     value: ${{ steps.api-status.outputs.status-code }}
-
-################################################################################
 
 runs:
   using: "composite"
