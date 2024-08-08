@@ -1,0 +1,152 @@
+name: "EK Pachca"
+description: "Action for sending notifications to Pachca messenger"
+author: "ESSENTIALKAOS"
+
+branding:
+  icon: 'bell'
+  color: 'white'
+
+################################################################################
+
+inputs:
+  webhook:
+    description: "Webhook URL"
+    required: true
+
+  title:
+    description: "Notification title"
+    required: true
+
+  message:
+    description: "Notification message"
+    required: true
+
+  type:
+    description: "Notification type"
+    required: false
+
+  timezone:
+    description: "Timezone name for formatting dates"
+    requred: false
+    default: "UTC"
+
+outputs:
+  status-code:
+    description: "API response status code"
+    value: ${{ steps.api-status.outputs.status-code }}
+
+################################################################################
+
+runs:
+  using: "composite"
+  steps:
+    - name: Send notification data
+      id: send-notification
+      shell: bash
+      run: |
+        # [send-notification]
+
+        export TZ="${{inputs.timezone}}"
+
+        RUN_URL="https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}"
+
+        JSON_DATA=$(cat << EOF
+        {
+          "title": "${{inputs.title}}",
+          "message": "${{inputs.message}}",
+          "status": "${{inputs.status}}",
+          "type": "${{inputs.type}}",
+          "job": "${{github.job}}",
+          "event_name": "${{github.event_name}}",
+          "repository": "${{github.repository}}",
+          "run_attempt": ${{github.run_attempt}},
+          "run_number": ${{github.run_number}},
+          "run_id": "${{github.run_id}}",
+          "run_url": "$RUN_URL",
+          "actor": "${{github.actor}}",
+          "workflow": "${{github.workflow}}",
+        EOF
+        )
+
+        echo "$JSON_DATA" > payload.json
+
+        if [[ "${{github.event_name}}" == "pull_request" ]] ; then
+        PR_CREATED_DATE=$(date --date="${{github.event.pull_request.created_at}}" +'%Y/%m/%d %H:%M')
+        MERGE_COMMIT_SHA="${{github.event.pull_request.merge_commit_sha}}"
+        MERGE_COMMIT_SHA_SHORT="${MERGE_COMMIT_SHA:0:7}"
+
+        if [[ "${{github.event.pull_request.merged}}" == "true" ]] ; then
+          PR_MERGED_DATE=$(date --date="${{github.event.pull_request.merged_at}}" +'%Y/%m/%d %H:%M')
+        fi
+
+        PR_ASSIGNEES=$(echo '${{ toJson(github.event.pull_request.assignees) }}' | jq -c '. | map(.login)')
+        PR_LABELS=$(echo '${{ toJson(github.event.pull_request.labels) }}' | jq -c '. | map(.name)')
+
+        JSON_DATA=$(cat << EOF
+          "ref_head": "${{github.head_ref}}",
+          "ref_base": "${{github.base_ref}}",
+          "merge_sha": "$MERGE_COMMIT_SHA",
+          "merge_sha_short": "$MERGE_COMMIT_SHA_SHORT",
+          "pr_title": "${{github.event.pull_request.title}}",
+          "pr_number": ${{github.event.pull_request.number}},
+          "pr_state": "${{github.event.pull_request.state}}",
+          "pr_url": "${{github.event.pull_request.html_url}}",
+          "pr_merged": ${{github.event.pull_request.merged}},
+          "pr_created_date": "$PR_CREATED_DATE",
+          "pr_merged_date": "$PR_MERGED_DATE",
+          "pr_draft": ${{github.event.pull_request.draft}},
+          "pr_changed_files": ${{github.event.pull_request.changed_files}},
+          "pr_commits_num": ${{github.event.pull_request.commits}},
+          "pr_assignees": $PR_ASSIGNEES,
+          "pr_lables": $PR_LABELS
+        }
+        EOF
+        )
+        elif [[ "${{github.event_name}}" == "push" ]] ; then
+        COMMIT_SHA="${{github.sha}}"
+        COMMIT_SHA_SHORT="${COMMIT_SHA:0:7}"
+        COMMIT_DATE=$(date --date="${{github.event.head_commit.timestamp}}" +'%Y/%m/%d %H:%M')
+
+        JSON_DATA=$(cat << EOF
+          "sha": "$COMMIT_SHA",
+          "sha_short": "$COMMIT_SHA_SHORT",
+          "ref": "${{github.ref_name}}",
+          "author_email": "${{github.event.head_commit.author.email}}",
+          "author_name": "${{github.event.head_commit.author.name}}",
+          "author_username": "${{github.event.head_commit.author.username}}",
+          "commit_message": "${{github.event.head_commit.message}}",
+          "commit_url": "${{github.event.head_commit.url}}",
+          "commit_date": "$COMMIT_DATE"
+        }
+        EOF
+        )
+        else
+        JSON_DATA=$(cat << EOF
+          "ref": "${{github.ref_name}}"
+        }
+        EOF
+        )
+        fi
+
+        echo "$JSON_DATA" >> payload.json
+
+        status_code=$(curl -s -H 'Content-Type: application/json' -A 'GHA-EK-Pachca/1' -X POST --data @payload.json --write-out "%{http_code}" --output /dev/null "${{inputs.webhook}}")
+
+        echo "status-code=$status_code" >> $GITHUB_OUTPUT
+
+        if [[ $status_code -gt 400 || $status_code -lt 200 ]] ; then
+          echo "::error ::Pachca API returned non-ok status code $status_code"
+          exit 1
+        fi
+
+    - name: Set API status code
+      if: success() || failure()
+      id: api-status
+      shell: bash
+      run: |
+        # [api-status]
+
+        if [[ -n "${{ steps.send-notification.outputs.status-code }}" ]] ; then
+          echo "status-code=${{ steps.send-notification.outputs.status-code }}" >> $GITHUB_OUTPUT
+          echo -e "\033[32mNotification successfully sent\033[0m"
+        fi
