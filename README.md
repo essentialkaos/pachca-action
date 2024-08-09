@@ -2,7 +2,7 @@
 
 <br/>
 
-Action for sending notifications to [Pachca](https://www.pachca.com) messenger.
+Action for sending notifications to [Pachca](https://www.pachca.com) messenger. This action sends basic information provided by the user and information about the event based on the type of event.
 
 ### Usage
 
